@@ -1,112 +1,67 @@
 import os
-import requests
-from bs4 import BeautifulSoup
-from datetime import datetime
-import random
-import json
+import asyncio
+from fastapi import FastAPI
+from playwright.async_api import async_playwright
+import httpx
 
-# Gemini API key loaded from environment variable
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+app = FastAPI()
 
-# Placeholder for webhook or Google Sheet connection via Make
-MAKE_WEBHOOK_URL = os.getenv("MAKE_WEBHOOK_URL")
+# Environment Variables
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+MAKE_WEBHOOK_URL = os.getenv("MAKE_WEBHOOK_URL", "")
+MIN_MEMBERS = int(os.getenv("MIN_MEMBERS", 4000))
+PAGE_LIMIT = int(os.getenv("PAGE_LIMIT", 5))
+USER_AGENT = os.getenv("USER_AGENT", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
 
-# Function to get search tags from Gemini
-def get_search_tags():
-    prompt = """
-    Generate 5 short trending keywords or tags people might use to find large Discord servers.
-    Return them as a simple JSON array like ["gaming", "crypto", "anime", "music", "ai"].
-    """
-    headers = {"Content-Type": "application/json"}
-    response = requests.post(
-        f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={GEMINI_API_KEY}",
-        headers=headers,
-        json={"contents": [{"parts": [{"text": prompt}]}]}
-    )
-    try:
-        text = response.json()["candidates"][0]["content"]["parts"][0]["text"]
-        return json.loads(text)
-    except Exception:
-        # fallback if Gemini output fails
-        return ["gaming", "music", "community", "ai", "friends"]
+# Sites to scrape
+SITES = [
+    "https://top.gg/servers",
+    "https://disboard.org/servers",
+    "https://discord.gg/invite"  # placeholder
+]
 
-# Scrape Disboard
-def scrape_disboard(tag):
+@app.get("/health")
+async def health():
+    return {"ok": True, "ready": True}
+
+@app.post("/run")
+async def run_scraper():
     results = []
-    for page in range(1, 6):  # limit to 5 pages
-        url = f"https://disboard.org/servers/tag/{tag}?page={page}"
-        r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
-        soup = BeautifulSoup(r.text, "html.parser")
-        servers = soup.select(".server-card")
-        for s in servers:
-            name = s.select_one(".server-name").text.strip() if s.select_one(".server-name") else "Unknown"
-            link = "https://disboard.org" + s.select_one("a")["href"]
-            member_text = s.select_one(".server-membercount").text.strip() if s.select_one(".server-membercount") else ""
-            members = int(''.join(filter(str.isdigit, member_text))) if member_text else 0
-            if members >= 4000:
-                results.append({
-                    "source": "Disboard",
-                    "tag": tag,
-                    "name": name,
-                    "link": link,
-                    "members": members
-                })
-    return results
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        context = await browser.new_context(user_agent=USER_AGENT)
+        page = await context.new_page()
 
-# Scrape Top.gg
-def scrape_topgg(tag):
-    results = []
-    for page in range(1, 6):
-        url = f"https://top.gg/servers/tag/{tag}?page={page}"
-        r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"})
-        soup = BeautifulSoup(r.text, "html.parser")
-        servers = soup.select("a.sc-cOSRxK")
-        for s in servers:
-            link = "https://top.gg" + s["href"]
-            name = s.text.strip()[:100]
-            members = random.randint(4000, 100000)  # placeholder since top.gg hides member counts
-            results.append({
-                "source": "Top.gg",
-                "tag": tag,
-                "name": name,
-                "link": link,
-                "members": members
-            })
-    return results
+        for site in SITES:
+            for page_num in range(1, PAGE_LIMIT + 1):
+                url = f"{site}?page={page_num}"
+                await page.goto(url)
+                await page.wait_for_timeout(2000)  # wait for content to load
 
-# Scrape Discord.gg (limited discovery scraping)
-def scrape_discord(tag):
-    results = []
-    base = f"https://discord.com/discover?query={tag}"
-    r = requests.get(base, headers={"User-Agent": "Mozilla/5.0"})
-    soup = BeautifulSoup(r.text, "html.parser")
-    links = [a["href"] for a in soup.select("a[href^='https://discord.gg/']")]
-    for link in links:
-        results.append({
-            "source": "Discord.gg",
-            "tag": tag,
-            "name": "Unknown",
-            "link": link,
-            "members": random.randint(4000, 90000)
-        })
-    return results
+                # Example scraping logic (adjust per site)
+                server_cards = await page.query_selector_all(".server-card")  # adjust selector
+                for card in server_cards:
+                    try:
+                        name = await card.query_selector_eval(".server-name", "el => el.textContent")
+                        tag = await card.query_selector_eval(".server-tag", "el => el.textContent")
+                        invite = await card.query_selector_eval("a.invite-link", "el => el.href")
+                        members_text = await card.query_selector_eval(".member-count", "el => el.textContent")
+                        members = int("".join(filter(str.isdigit, members_text)))
+                        if members >= MIN_MEMBERS:
+                            results.append({
+                                "name": name,
+                                "tag": tag,
+                                "invite": invite,
+                                "members": members
+                            })
+                    except Exception:
+                        continue
 
-# Send results to Make webhook
-def send_to_make(results):
-    payload = {"timestamp": datetime.utcnow().isoformat(), "results": results}
-    requests.post(MAKE_WEBHOOK_URL, json=payload)
+        await browser.close()
 
-# Main execution
-if __name__ == "__main__":
-    tags = get_search_tags()
-    all_results = []
-    for tag in tags:
-        print(f"Scraping for tag: {tag}")
-        all_results.extend(scrape_disboard(tag))
-        all_results.extend(scrape_topgg(tag))
-        all_results.extend(scrape_discord(tag))
-    if all_results:
-        send_to_make(all_results)
-        print(f"✅ Scraping completed. Sent {len(all_results)} servers to Make.")
-    else:
-        print("⚠️ No results found.")
+    # Send to Make.com if webhook exists
+    if MAKE_WEBHOOK_URL:
+        async with httpx.AsyncClient() as client:
+            await client.post(MAKE_WEBHOOK_URL, json=results)
+
+    return {"scraped": len(results)}
