@@ -1,3 +1,13 @@
+import traceback
+
+try:
+    # everything in your current main.py goes here
+    # for example, your code that runs the bot
+except Exception as e:
+    print("Application crashed with error:")
+    traceback.print_exc()
+    raise e
+
 import os
 import asyncio
 from fastapi import FastAPI
