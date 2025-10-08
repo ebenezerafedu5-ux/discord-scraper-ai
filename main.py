@@ -1,11 +1,13 @@
 import os
-import asyncio
-from fastapi import FastAPI
-from playwright.async_api import async_playwright
-import httpx
-import traceback  # added for error logging
+import traceback
+print("Starting main.py")  # <- confirms Python started
 
 try:
+    import asyncio
+    from fastapi import FastAPI
+    from playwright.async_api import async_playwright
+    import httpx
+
     app = FastAPI()
 
     # Environment Variables
@@ -19,7 +21,7 @@ try:
     SITES = [
         "https://top.gg/servers",
         "https://disboard.org/servers",
-        "https://discord.gg/invite"  # placeholder
+        "https://discord.gg/invite"
     ]
 
     @app.get("/health")
@@ -38,10 +40,9 @@ try:
                 for page_num in range(1, PAGE_LIMIT + 1):
                     url = f"{site}?page={page_num}"
                     await page.goto(url)
-                    await page.wait_for_timeout(2000)  # wait for content to load
+                    await page.wait_for_timeout(2000)
 
-                    # Example scraping logic (adjust per site)
-                    server_cards = await page.query_selector_all(".server-card")  # adjust selector
+                    server_cards = await page.query_selector_all(".server-card")
                     for card in server_cards:
                         try:
                             name = await card.query_selector_eval(".server-name", "el => el.textContent")
@@ -61,7 +62,6 @@ try:
 
             await browser.close()
 
-        # Send to Make.com if webhook exists
         if MAKE_WEBHOOK_URL:
             async with httpx.AsyncClient() as client:
                 await client.post(MAKE_WEBHOOK_URL, json=results)
