@@ -1,16 +1,16 @@
-# main.py
 import os
 import traceback
 from typing import List, Dict, Any
-
-from fastapi import FastAPI
-from playwright.async_api import async_playwright
+import asyncio
 import httpx
+from fastapi import FastAPI, BackgroundTasks
+
+from playwright.async_api import async_playwright
 
 app = FastAPI()
 
 # ---------------------------
-# Safe env parsing helpers
+# Environment variables
 # ---------------------------
 def get_int_env(key: str, default: int) -> int:
     v = os.getenv(key)
@@ -27,7 +27,6 @@ MIN_MEMBERS = get_int_env("MIN_MEMBERS", 4000)
 PAGE_LIMIT = get_int_env("PAGE_LIMIT", 5)
 USER_AGENT = os.getenv("USER_AGENT", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
 
-# Default target sites (you can edit)
 SITES = [
     "https://top.gg/servers",
     "https://disboard.org/servers",
@@ -35,36 +34,27 @@ SITES = [
 ]
 
 # ---------------------------
-# Startup logging (non-blocking)
+# Startup event
 # ---------------------------
 @app.on_event("startup")
 async def startup_event():
-    # Minimal info so logs show relevant config without leaking secrets
     print("Startup: Discord scraper app loaded.")
     print(f"MIN_MEMBERS={MIN_MEMBERS}, PAGE_LIMIT={PAGE_LIMIT}, MAKE_WEBHOOK_SET={bool(MAKE_WEBHOOK_URL)}")
 
 # ---------------------------
-# Health endpoint
+# Health check
 # ---------------------------
 @app.get("/health")
 async def health():
     return {"ok": True, "ready": True}
 
 # ---------------------------
-# Run scraper endpoint
+# Scraper logic
 # ---------------------------
-@app.post("/run")
-async def run_scraper() -> Dict[str, Any]:
-    """
-    POST /run  -> launches Playwright, scrapes configured SITES up to PAGE_LIMIT,
-    returns a summary and a small sample of results. If MAKE_WEBHOOK_URL is set,
-    tries to POST results to that webhook (non-fatal on failure).
-    """
+async def run_scraper_task():
     results: List[Dict[str, Any]] = []
-
     try:
         async with async_playwright() as p:
-            # Launch with common flags used in containers
             browser = await p.chromium.launch(
                 headless=True,
                 args=["--no-sandbox", "--disable-setuid-sandbox"]
@@ -76,21 +66,18 @@ async def run_scraper() -> Dict[str, Any]:
                 for page_num in range(1, PAGE_LIMIT + 1):
                     url = f"{site}?page={page_num}"
                     try:
-                        await page.goto(url, timeout=30000)  # 30s per page
-                        await page.wait_for_timeout(2000)     # small wait for JS
+                        await page.goto(url, timeout=30000)
+                        await page.wait_for_timeout(2000)
                     except Exception as e:
                         print(f"[WARN] Failed to load {url}: {e}")
                         continue
 
-                    # Primary selector (may need adjustment per site)
                     server_cards = await page.query_selector_all(".server-card")
                     if not server_cards:
-                        # fallback attempt: try some generic selectors
                         server_cards = await page.query_selector_all(".card, .listing, .server")
 
                     for card in server_cards:
                         try:
-                            # defensive selector extraction: check existence before eval
                             name = None
                             if await card.query_selector(".server-name"):
                                 name = await card.query_selector_eval(".server-name", "el => el.textContent")
@@ -112,7 +99,6 @@ async def run_scraper() -> Dict[str, Any]:
                                 members_text = await card.query_selector_eval(".member-count", "el => el.textContent")
                                 members = int("".join(filter(str.isdigit, members_text))) if members_text else 0
 
-                            # only capture if meets threshold
                             if members >= MIN_MEMBERS:
                                 results.append({
                                     "name": (name or "").strip(),
@@ -122,7 +108,6 @@ async def run_scraper() -> Dict[str, Any]:
                                     "source_page": url
                                 })
                         except Exception as e:
-                            # single-card parse error should not stop the whole run
                             print(f"[DEBUG] card parse error on {url}: {e}")
                             continue
 
@@ -131,9 +116,8 @@ async def run_scraper() -> Dict[str, Any]:
     except Exception as e:
         print("Error while running scraper:")
         traceback.print_exc()
-        return {"error": str(e)}
+        return
 
-    # If webhook is set, try to post results (failure here shouldn't be fatal)
     if MAKE_WEBHOOK_URL and results:
         try:
             async with httpx.AsyncClient(timeout=30) as client:
@@ -142,5 +126,19 @@ async def run_scraper() -> Dict[str, Any]:
         except Exception as e:
             print(f"[WARN] Failed to post webhook: {e}")
 
-    # Limit return size so logs/responses don't explode
-    return {"scraped": len(results), "sample": results[:20]}
+    print(f"✅ Scrape complete. {len(results)} results collected.")
+
+# ---------------------------
+# Non-blocking endpoint
+# ---------------------------
+@app.get("/run")
+async def trigger_scrape(background_tasks: BackgroundTasks):
+    background_tasks.add_task(run_scraper_task)
+    return {"status": "scraping started"}
+
+# ---------------------------
+# Root endpoint
+# ---------------------------
+@app.get("/")
+async def root():
+    return {"message": "Discord scraping bot is online."}
