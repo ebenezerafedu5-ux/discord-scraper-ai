@@ -1,4 +1,9 @@
 #!/usr/bin/env bash
-set -eux
-pip install -r requirements.txt
-npx playwright install --with-deps chromium
+set -e  # Stop if any command fails
+
+echo "Installing Playwright browsers..."
+pip install --upgrade pip
+pip install playwright
+playwright install --with-deps chromium
+
+echo "Build completed successfully."
