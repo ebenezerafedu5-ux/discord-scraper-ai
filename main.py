@@ -22,7 +22,7 @@ def get_int_env(key: str, default: int) -> int:
         return default
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-MAKE_WEBHOOK_URL = os.getenv("MAKE_WEBHOOK_URL", "")
+GOOGLE_APPS_SCRIPT_URL = os.getenv("GOOGLE_APPS_SCRIPT_URL", "")
 MIN_MEMBERS = get_int_env("MIN_MEMBERS", 4000)
 PAGE_LIMIT = get_int_env("PAGE_LIMIT", 5)
 USER_AGENT = os.getenv("USER_AGENT", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
@@ -39,7 +39,7 @@ SITES = [
 @app.on_event("startup")
 async def startup_event():
     print("Startup: Discord scraper app loaded.")
-    print(f"MIN_MEMBERS={MIN_MEMBERS}, PAGE_LIMIT={PAGE_LIMIT}, MAKE_WEBHOOK_SET={bool(MAKE_WEBHOOK_URL)}")
+    print(f"MIN_MEMBERS={MIN_MEMBERS}, PAGE_LIMIT={PAGE_LIMIT}, GOOGLE_APPS_SCRIPT_SET={bool(GOOGLE_APPS_SCRIPT_URL)}")
 
 # ---------------------------
 # Health check
@@ -104,8 +104,7 @@ async def run_scraper_task():
                                     "name": (name or "").strip(),
                                     "tag": (tag or "").strip(),
                                     "invite": invite or "",
-                                    "members": members,
-                                    "source_page": url
+                                    "members": members
                                 })
                         except Exception as e:
                             print(f"[DEBUG] card parse error on {url}: {e}")
@@ -118,13 +117,13 @@ async def run_scraper_task():
         traceback.print_exc()
         return
 
-    if MAKE_WEBHOOK_URL and results:
+    if GOOGLE_APPS_SCRIPT_URL and results:
         try:
             async with httpx.AsyncClient(timeout=30) as client:
-                resp = await client.post(MAKE_WEBHOOK_URL, json={"results": results})
-                print(f"[INFO] Posted to webhook: status={resp.status_code}")
+                resp = await client.post(GOOGLE_APPS_SCRIPT_URL, json={"results": results})
+                print(f"[INFO] Posted to Google Apps Script: status={resp.status_code}")
         except Exception as e:
-            print(f"[WARN] Failed to post webhook: {e}")
+            print(f"[WARN] Failed to post to Google Apps Script: {e}")
 
     print(f"✅ Scrape complete. {len(results)} results collected.")
 
