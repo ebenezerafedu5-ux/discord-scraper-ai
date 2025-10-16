@@ -2,11 +2,8 @@ services:
   - type: web
     name: discord-scraper
     env: python
-    buildCommand: |
-      pip install -r requirements.txt
-      bash render_build.sh
-      npx playwright install --with-deps chromium
-    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    buildCommand: bash render-build.sh
+    startCommand: gunicorn -k uvicorn.workers.UvicornWorker main:app --bind 0.0.0.0:$PORT --timeout 120
     envVars:
       - key: PYTHON_VERSION
         value: 3.13.4
