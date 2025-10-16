@@ -3,10 +3,9 @@ services:
     name: discord-scraper
     env: python
     buildCommand: |
-      buildCommand: |
-  pip install -r requirements.txt
-  bash render-build.sh
-      playwright install chromium
+      pip install -r requirements.txt
+      bash render_build.sh
+      npx playwright install --with-deps chromium
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: PYTHON_VERSION
