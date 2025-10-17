@@ -3,9 +3,7 @@ services:
     name: discord-scraper
     env: python
     buildCommand: bash render-build.sh
-    startCommand: gunicorn -k uvicorn.workers.UvicornWorker main:app --bind 0.0.0.0:$PORT --timeout 120
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
-      - key: PYTHON_VERSION
-        value: 3.13.4
       - key: PLAYWRIGHT_BROWSERS_PATH
         value: /tmp/playwright
