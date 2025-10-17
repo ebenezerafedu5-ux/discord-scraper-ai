@@ -1,0 +1,24 @@
+name: Make render-build.sh executable
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  fix-permissions:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Make render-build.sh executable
+        run: chmod +x render-build.sh
+
+      - name: Commit and push changes
+        run: |
+          git config --global user.name "github-actions"
+          git config --global user.email "actions@github.com"
+          git add render-build.sh
+          git commit -m "Set execute permission for render-build.sh" || echo "No changes"
+          git push
