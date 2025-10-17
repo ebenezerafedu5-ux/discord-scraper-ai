@@ -6,7 +6,7 @@ echo "Installing pip and Playwright..."
 pip install --upgrade pip
 pip install playwright
 
-echo "Installing Chromium..."
-playwright install chromium
+echo "Installing Chromium with dependencies..."
+playwright install --with-deps chromium
 
 echo "Build completed successfully."
