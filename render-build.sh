@@ -2,11 +2,9 @@
 set -e
 export PLAYWRIGHT_BROWSERS_PATH=/tmp/playwright
 
-echo "Installing pip and Playwright..."
+echo "Installing dependencies..."
 pip install --upgrade pip
-pip install playwright
-
-echo "Installing Chromium with dependencies..."
-playwright install --with-deps chromium
+pip install -r requirements.txt
+playwright install chromium
 
 echo "Build completed successfully."
